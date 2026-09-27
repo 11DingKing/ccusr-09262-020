@@ -10,6 +10,7 @@ from service_09252_010.domain.models import Grant, Principal
 from service_09252_010.persistence.database import Database
 from service_09252_010.persistence.store import Store
 from service_09252_010.services.access import grant_access
+from service_09252_010.services.anomaly import AnomalyService
 from service_09252_010.services.calibers import CaliberService
 from service_09252_010.services.calculation import CalculationService
 from service_09252_010.services.export import ExportService
@@ -63,6 +64,7 @@ class Rig:
         self.calculation = CalculationService(self.db, self.clock, self.ids)
         self.review = ReviewService(self.db, self.clock)
         self.exports = ExportService(self.db, self.clock, self.ids)
+        self.anomaly = AnomalyService(self.db, self.clock, self.ids)
 
     def grant(self, institution: str, project: str = PROJECT,
               category: str = "*", permission: str = "view") -> None:

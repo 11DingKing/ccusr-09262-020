@@ -5,6 +5,9 @@ import json
 import sqlite3
 
 from ..domain.models import (
+    AnomalyAlert,
+    AnomalyEvaluation,
+    AnomalyRule,
     ConversionRule,
     EvidenceSource,
     Grant,
@@ -462,3 +465,123 @@ class Store:
             (report_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- 趋势异常监测 ----
+    def next_anomaly_rule_version(self, rule_key: str) -> int:
+        row = self.conn.execute(
+            "SELECT MAX(version_no) AS v FROM anomaly_rules WHERE rule_key = ?",
+            (rule_key,),
+        ).fetchone()
+        return (row["v"] or 0) + 1 if row else 1
+
+    def add_anomaly_rule(self, rule: AnomalyRule) -> None:
+        self.conn.execute(
+            "INSERT INTO anomaly_rules (id, rule_key, version_no,"
+            " baseline_window, sigma_threshold, min_run, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (rule.id, rule.rule_key, rule.version_no, rule.baseline_window,
+             rule.sigma_threshold, rule.min_run, rule.created_by,
+             rule.created_at),
+        )
+
+    def get_anomaly_rule(self, rule_id: str) -> AnomalyRule | None:
+        row = self.conn.execute(
+            "SELECT * FROM anomaly_rules WHERE id = ?", (rule_id,)
+        ).fetchone()
+        return AnomalyRule(**dict(row)) if row else None
+
+    def latest_anomaly_rule(self, rule_key: str) -> AnomalyRule | None:
+        row = self.conn.execute(
+            "SELECT * FROM anomaly_rules WHERE rule_key = ?"
+            " ORDER BY version_no DESC LIMIT 1",
+            (rule_key,),
+        ).fetchone()
+        return AnomalyRule(**dict(row)) if row else None
+
+    def list_anomaly_rules(self) -> list[AnomalyRule]:
+        rows = self.conn.execute(
+            "SELECT * FROM anomaly_rules ORDER BY rule_key, version_no"
+        ).fetchall()
+        return [AnomalyRule(**dict(r)) for r in rows]
+
+    def add_anomaly_evaluation(self, ev: AnomalyEvaluation) -> None:
+        self.conn.execute(
+            "INSERT INTO anomaly_evaluations (id, rule_id, rule_key,"
+            " rule_version_no, rule_snapshot_json, series_json,"
+            " series_fingerprint, verdict, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ev.id, ev.rule_id, ev.rule_key, ev.rule_version_no,
+             json.dumps(ev.rule_snapshot, sort_keys=True),
+             json.dumps(ev.series), ev.series_fingerprint, ev.verdict.value,
+             ev.created_by, ev.created_at),
+        )
+
+    def get_anomaly_evaluation(self, evaluation_id: str) -> AnomalyEvaluation | None:
+        row = self.conn.execute(
+            "SELECT * FROM anomaly_evaluations WHERE id = ?", (evaluation_id,)
+        ).fetchone()
+        return self._to_anomaly_evaluation(row) if row else None
+
+    def list_anomaly_evaluations(self, rule_key: str | None = None
+                                 ) -> list[AnomalyEvaluation]:
+        if rule_key is None:
+            rows = self.conn.execute(
+                "SELECT * FROM anomaly_evaluations ORDER BY created_at, id"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM anomaly_evaluations WHERE rule_key = ?"
+                " ORDER BY created_at, id",
+                (rule_key,),
+            ).fetchall()
+        return [self._to_anomaly_evaluation(r) for r in rows]
+
+    @staticmethod
+    def _to_anomaly_evaluation(row: sqlite3.Row) -> AnomalyEvaluation:
+        from ..domain.anomaly import AnomalyVerdict
+
+        return AnomalyEvaluation(
+            id=row["id"],
+            rule_id=row["rule_id"],
+            rule_key=row["rule_key"],
+            rule_version_no=row["rule_version_no"],
+            rule_snapshot=json.loads(row["rule_snapshot_json"]),
+            series=json.loads(row["series_json"]),
+            series_fingerprint=row["series_fingerprint"],
+            verdict=AnomalyVerdict(row["verdict"]),
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+        )
+
+    def add_anomaly_alert(self, alert: AnomalyAlert) -> None:
+        self.conn.execute(
+            "INSERT INTO anomaly_alerts (id, evaluation_id, kind, start_index,"
+            " end_index, peak_index, max_residual, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (alert.id, alert.evaluation_id, alert.kind.value, alert.start_index,
+             alert.end_index, alert.peak_index, alert.max_residual,
+             alert.created_at),
+        )
+
+    def list_anomaly_alerts(self, evaluation_id: str) -> list[AnomalyAlert]:
+        rows = self.conn.execute(
+            "SELECT * FROM anomaly_alerts WHERE evaluation_id = ?"
+            " ORDER BY start_index, id",
+            (evaluation_id,),
+        ).fetchall()
+        return [self._to_anomaly_alert(r) for r in rows]
+
+    @staticmethod
+    def _to_anomaly_alert(row: sqlite3.Row) -> AnomalyAlert:
+        from ..domain.anomaly import AnomalyKind
+
+        return AnomalyAlert(
+            id=row["id"],
+            evaluation_id=row["evaluation_id"],
+            kind=AnomalyKind(row["kind"]),
+            start_index=row["start_index"],
+            end_index=row["end_index"],
+            peak_index=row["peak_index"],
+            max_residual=row["max_residual"],
+            created_at=row["created_at"],
+        )

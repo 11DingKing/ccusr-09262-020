@@ -145,6 +145,43 @@ CREATE TABLE IF NOT EXISTS exports (
     exported_at TEXT NOT NULL,
     digest TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS anomaly_rules (
+    id TEXT PRIMARY KEY,
+    rule_key TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    baseline_window INTEGER NOT NULL,
+    sigma_threshold REAL NOT NULL,
+    min_run INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (rule_key, version_no)
+);
+CREATE TABLE IF NOT EXISTS anomaly_evaluations (
+    id TEXT PRIMARY KEY,
+    rule_id TEXT NOT NULL REFERENCES anomaly_rules(id),
+    rule_key TEXT NOT NULL,
+    rule_version_no INTEGER NOT NULL,
+    rule_snapshot_json TEXT NOT NULL,
+    series_json TEXT NOT NULL,
+    series_fingerprint TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_anomaly_evaluations_key
+    ON anomaly_evaluations (rule_key);
+CREATE TABLE IF NOT EXISTS anomaly_alerts (
+    id TEXT PRIMARY KEY,
+    evaluation_id TEXT NOT NULL REFERENCES anomaly_evaluations(id),
+    kind TEXT NOT NULL,
+    start_index INTEGER NOT NULL,
+    end_index INTEGER NOT NULL,
+    peak_index INTEGER NOT NULL,
+    max_residual REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_anomaly_alerts_evaluation
+    ON anomaly_alerts (evaluation_id);
 """
 
 

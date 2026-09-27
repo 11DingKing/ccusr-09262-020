@@ -77,6 +77,11 @@ class Application:
             ("POST", ("reports", "{report_id}", "exports"), self._export_report),
             ("GET", ("reports", "{report_id}"), self._get_report),
             ("POST", ("grants",), self._create_grant),
+            ("POST", ("anomaly-rules",), self._register_anomaly_rule),
+            ("GET", ("anomaly-rules",), self._list_anomaly_rules),
+            ("POST", ("anomaly-evaluations",), self._evaluate_anomaly),
+            ("GET", ("anomaly-evaluations",), self._list_anomaly_evaluations),
+            ("GET", ("anomaly-evaluations", "{eid}"), self._get_anomaly_evaluation),
         ]
 
     def __call__(self, env: dict, start_response) -> list[bytes]:
@@ -290,6 +295,32 @@ class Application:
                       body.get("category", "*"), permission),
             )
         return 201, {"granted": True}
+
+    # ---- 指标趋势异常监测 ----
+    def _register_anomaly_rule(self, p: Principal, body: dict, ctx: Context):
+        result = ctx.container.anomaly.register_rule(
+            p, rule_key=body["rule_key"],
+            baseline_window=body.get("baseline_window", 5),
+            sigma_threshold=body.get("sigma_threshold", 3.0),
+            min_run=body.get("min_run", 3),
+        )
+        return 201, result
+
+    def _list_anomaly_rules(self, p: Principal, body: dict, ctx: Context):
+        return 200, {"rules": ctx.container.anomaly.list_rules()}
+
+    def _evaluate_anomaly(self, p: Principal, body: dict, ctx: Context):
+        result = ctx.container.anomaly.evaluate(
+            p, rule_key=body["rule_key"], values=body.get("values", []),
+        )
+        return 201, result
+
+    def _list_anomaly_evaluations(self, p: Principal, body: dict, ctx: Context):
+        return 200, {"evaluations": ctx.container.anomaly.list_evaluations(
+            ctx.query("rule_key"))}
+
+    def _get_anomaly_evaluation(self, p: Principal, body: dict, ctx: Context):
+        return 200, ctx.container.anomaly.get_evaluation(ctx.match["eid"])
 
 
 def _not_found(message: str):

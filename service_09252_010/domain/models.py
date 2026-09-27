@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from .anomaly import AnomalyKind, AnomalyVerdict
+
 
 class MissingPolicy(str, Enum):
     """缺失值处理策略。"""
@@ -197,3 +199,47 @@ class Principal:
     @property
     def is_supervisor(self) -> bool:
         return self.role == "supervisor"
+
+
+@dataclass(frozen=True)
+class AnomalyRule:
+    """趋势异常监测规则的一个版本；同 rule_key 递增版本号，最新版生效。"""
+
+    id: str
+    rule_key: str  # 监测对象键，如 "proj-1|enrollment_count|CN-STD"
+    version_no: int
+    baseline_window: int
+    sigma_threshold: float
+    min_run: int
+    created_by: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class AnomalyEvaluation:
+    """一次趋势判定：固化规则快照与原始序列，规则变更后判定依据仍可查。"""
+
+    id: str
+    rule_id: str
+    rule_key: str
+    rule_version_no: int
+    rule_snapshot: dict  # 判定时的规则参数全文（判定依据）
+    series: list  # 原始序列 [float | None]
+    series_fingerprint: str
+    verdict: AnomalyVerdict
+    created_by: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class AnomalyAlert:
+    """判定产生的一条告警（尖峰或偏移）；无异常的判定不产生告警行。"""
+
+    id: str
+    evaluation_id: str
+    kind: AnomalyKind
+    start_index: int
+    end_index: int
+    peak_index: int
+    max_residual: float
+    created_at: str

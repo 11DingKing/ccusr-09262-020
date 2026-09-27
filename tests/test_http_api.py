@@ -155,6 +155,74 @@ class HttpApiTests(unittest.TestCase):
         }, {"X-Institution-Id": "陌生机构"})
         self.assertEqual(status, 403)
 
+    def test_anomaly_monitoring_flow(self) -> None:
+        # 机构无权登记监测规则
+        status, body = call(self.app, "POST", "/anomaly-rules", {
+            "rule_key": "P1|m|CN-STD",
+        }, INST_A)
+        self.assertEqual(status, 403)
+
+        # 主管单位登记规则（基线窗口 4、阈值 3σ、连续 3 点判偏移）
+        status, body = call(self.app, "POST", "/anomaly-rules", {
+            "rule_key": "P1|m|CN-STD", "baseline_window": 4,
+            "sigma_threshold": 3.0, "min_run": 3,
+        }, SUP)
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["version_no"], 1)
+
+        # 空序列：不误报
+        status, body = call(self.app, "POST", "/anomaly-evaluations", {
+            "rule_key": "P1|m|CN-STD", "values": [],
+        }, INST_A)
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["verdict"], "normal")
+        self.assertEqual(body["alerts"], [])
+
+        # 一次尖峰与持续偏移的区分
+        status, spike = call(self.app, "POST", "/anomaly-evaluations", {
+            "rule_key": "P1|m|CN-STD",
+            "values": [10, 11, 9, 10, 30, 10, 11],
+        }, INST_A)
+        self.assertEqual(status, 201, spike)
+        self.assertEqual(spike["verdict"], "spike")
+        self.assertEqual(spike["alerts"][0]["kind"], "spike")
+
+        status, shift = call(self.app, "POST", "/anomaly-evaluations", {
+            "rule_key": "P1|m|CN-STD",
+            "values": [10, 11, 9, 10, 30, 29, 31, 10],
+        }, INST_A)
+        self.assertEqual(shift["verdict"], "shift")
+
+        # 判定详情：原始序列与判定依据（规则快照）留痕
+        status, detail = call(self.app, "GET",
+                              f"/anomaly-evaluations/{spike['evaluation_id']}",
+                              headers=INST_A)
+        self.assertEqual(status, 200, detail)
+        self.assertEqual(detail["rule_snapshot"]["sigma_threshold"], 3.0)
+        self.assertEqual(detail["series"], [10.0, 11.0, 9.0, 10.0,
+                                            30.0, 10.0, 11.0])
+
+        # 规则变更后历史告警仍保留原判定依据
+        status, body = call(self.app, "POST", "/anomaly-rules", {
+            "rule_key": "P1|m|CN-STD", "baseline_window": 4,
+            "sigma_threshold": 1000.0, "min_run": 3,
+        }, SUP)
+        self.assertEqual(body["version_no"], 2)
+        status, detail = call(self.app, "GET",
+                              f"/anomaly-evaluations/{spike['evaluation_id']}",
+                              headers=INST_A)
+        self.assertEqual(detail["rule_version_no"], 1)
+        self.assertEqual(detail["verdict"], "spike")
+
+        status, listing = call(self.app, "GET", "/anomaly-evaluations",
+                               headers=SUP, query="rule_key=P1|m|CN-STD")
+        self.assertEqual(status, 200, listing)
+        self.assertEqual(len(listing["evaluations"]), 3)
+
+        status, body = call(self.app, "GET",
+                            "/anomaly-evaluations/aev-none", headers=SUP)
+        self.assertEqual(status, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

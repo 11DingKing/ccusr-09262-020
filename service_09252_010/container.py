@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .persistence.database import Database
 from .ports import SystemClock, SystemIdGenerator
+from .services.anomaly import AnomalyService
 from .services.calibers import CaliberService
 from .services.calculation import CalculationService
 from .services.export import ExportService
@@ -34,3 +35,4 @@ class Container:
         self.calculation = CalculationService(self.db, self.clock, self.ids)
         self.review = ReviewService(self.db, self.clock)
         self.exports = ExportService(self.db, self.clock, self.ids)
+        self.anomaly = AnomalyService(self.db, self.clock, self.ids)
