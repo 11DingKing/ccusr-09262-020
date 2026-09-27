@@ -145,6 +145,43 @@ CREATE TABLE IF NOT EXISTS exports (
     exported_at TEXT NOT NULL,
     digest TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS trend_rules (
+    id TEXT PRIMARY KEY,
+    rule_key TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    baseline_window INTEGER NOT NULL,
+    z_threshold REAL NOT NULL,
+    min_run INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (rule_key, version_no)
+);
+CREATE TABLE IF NOT EXISTS trend_series (
+    id TEXT PRIMARY KEY,
+    metric TEXT NOT NULL,
+    points_json TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS trend_alerts (
+    id TEXT PRIMARY KEY,
+    series_id TEXT NOT NULL REFERENCES trend_series(id),
+    metric TEXT NOT NULL,
+    rule_id TEXT NOT NULL REFERENCES trend_rules(id),
+    rule_version_no INTEGER NOT NULL,
+    rule_snapshot_json TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    start_index INTEGER NOT NULL,
+    length INTEGER NOT NULL,
+    peak_value REAL NOT NULL,
+    peak_score REAL NOT NULL,
+    baseline REAL NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trend_alerts_metric ON trend_alerts (metric);
+CREATE INDEX IF NOT EXISTS idx_trend_alerts_series
+    ON trend_alerts (series_id, rule_id);
 """
 
 

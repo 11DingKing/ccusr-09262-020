@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from .trend import AnomalyKind, TrendRuleSpec
+
 
 class MissingPolicy(str, Enum):
     """缺失值处理策略。"""
@@ -197,3 +199,59 @@ class Principal:
     @property
     def is_supervisor(self) -> bool:
         return self.role == "supervisor"
+
+
+@dataclass(frozen=True)
+class TrendRule:
+    """趋势监测规则的一个版本；只增不改，告警固化版本号与参数快照。"""
+
+    id: str
+    rule_key: str  # 监测对象（指标/度量名）
+    version_no: int
+    window: int  # 基线参考期长度
+    z_threshold: float  # 偏离分数阈值
+    min_run: int  # 持续偏移所需的最短连续偏离长度
+    created_by: str
+    created_at: str
+
+    def spec(self) -> TrendRuleSpec:
+        """判定参数视图，供纯函数检测使用。"""
+        return TrendRuleSpec(
+            window=self.window,
+            z_threshold=self.z_threshold,
+            min_run=self.min_run,
+        )
+
+
+@dataclass(frozen=True)
+class TrendSeries:
+    """上报的原始监测序列（None 为缺失点）。"""
+
+    id: str
+    metric: str
+    points: list[float | None]
+    created_by: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class TrendAlert:
+    """一条趋势异常告警：判定时的规则版本与参数快照一并固化。
+
+    规则变更后，历史告警仍保留原判定依据，不被改写。
+    """
+
+    id: str
+    series_id: str
+    metric: str
+    rule_id: str
+    rule_version_no: int
+    rule_snapshot: dict  # {"window":…, "z_threshold":…, "min_run":…}
+    kind: AnomalyKind  # spike 一次尖峰 / shift 持续偏移
+    start_index: int  # 事件起始点在原始序列中的下标
+    length: int  # 连续偏离点数
+    peak_value: float
+    peak_score: float
+    baseline: float
+    created_by: str
+    created_at: str

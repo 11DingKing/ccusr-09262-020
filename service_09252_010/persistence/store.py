@@ -17,7 +17,11 @@ from ..domain.models import (
     RuleStatus,
     TaskStatus,
     ComputationTask,
+    TrendAlert,
+    TrendRule,
+    TrendSeries,
 )
+from ..domain.trend import AnomalyKind
 
 
 class Store:
@@ -462,3 +466,124 @@ class Store:
             (report_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- 趋势监测 ----
+    def add_trend_rule(self, rule: TrendRule) -> None:
+        self.conn.execute(
+            "INSERT INTO trend_rules (id, rule_key, version_no, baseline_window,"
+            " z_threshold, min_run, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (rule.id, rule.rule_key, rule.version_no, rule.window,
+             rule.z_threshold, rule.min_run, rule.created_by, rule.created_at),
+        )
+
+    def get_trend_rule(self, rule_id: str) -> TrendRule | None:
+        row = self.conn.execute(
+            "SELECT * FROM trend_rules WHERE id = ?", (rule_id,)
+        ).fetchone()
+        return self._to_trend_rule(row) if row else None
+
+    def latest_trend_rule(self, rule_key: str) -> TrendRule | None:
+        row = self.conn.execute(
+            "SELECT * FROM trend_rules WHERE rule_key = ?"
+            " ORDER BY version_no DESC LIMIT 1",
+            (rule_key,),
+        ).fetchone()
+        return self._to_trend_rule(row) if row else None
+
+    def list_trend_rule_versions(self, rule_key: str) -> list[TrendRule]:
+        rows = self.conn.execute(
+            "SELECT * FROM trend_rules WHERE rule_key = ? ORDER BY version_no",
+            (rule_key,),
+        ).fetchall()
+        return [self._to_trend_rule(r) for r in rows]
+
+    @staticmethod
+    def _to_trend_rule(row: sqlite3.Row) -> TrendRule:
+        return TrendRule(
+            id=row["id"],
+            rule_key=row["rule_key"],
+            version_no=row["version_no"],
+            window=row["baseline_window"],
+            z_threshold=row["z_threshold"],
+            min_run=row["min_run"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+        )
+
+    def add_trend_series(self, series: TrendSeries) -> None:
+        self.conn.execute(
+            "INSERT INTO trend_series (id, metric, points_json, created_by,"
+            " created_at) VALUES (?, ?, ?, ?, ?)",
+            (series.id, series.metric, json.dumps(series.points),
+             series.created_by, series.created_at),
+        )
+
+    def get_trend_series(self, series_id: str) -> TrendSeries | None:
+        row = self.conn.execute(
+            "SELECT * FROM trend_series WHERE id = ?", (series_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return TrendSeries(
+            id=row["id"],
+            metric=row["metric"],
+            points=json.loads(row["points_json"]),
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+        )
+
+    def add_trend_alert(self, alert: TrendAlert) -> None:
+        self.conn.execute(
+            "INSERT INTO trend_alerts (id, series_id, metric, rule_id,"
+            " rule_version_no, rule_snapshot_json, kind, start_index, length,"
+            " peak_value, peak_score, baseline, created_by, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (alert.id, alert.series_id, alert.metric, alert.rule_id,
+             alert.rule_version_no,
+             json.dumps(alert.rule_snapshot, sort_keys=True),
+             alert.kind.value, alert.start_index, alert.length,
+             alert.peak_value, alert.peak_score, alert.baseline,
+             alert.created_by, alert.created_at),
+        )
+
+    def trend_alerts_for(self, series_id: str, rule_id: str) -> list[TrendAlert]:
+        """同一序列在同一规则版本下已产生的告警（用于幂等评估）。"""
+        rows = self.conn.execute(
+            "SELECT * FROM trend_alerts WHERE series_id = ? AND rule_id = ?"
+            " ORDER BY start_index",
+            (series_id, rule_id),
+        ).fetchall()
+        return [self._to_trend_alert(r) for r in rows]
+
+    def list_trend_alerts(self, metric: str | None = None) -> list[TrendAlert]:
+        if metric is None:
+            rows = self.conn.execute(
+                "SELECT * FROM trend_alerts ORDER BY created_at, id"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM trend_alerts WHERE metric = ?"
+                " ORDER BY created_at, id",
+                (metric,),
+            ).fetchall()
+        return [self._to_trend_alert(r) for r in rows]
+
+    @staticmethod
+    def _to_trend_alert(row: sqlite3.Row) -> TrendAlert:
+        return TrendAlert(
+            id=row["id"],
+            series_id=row["series_id"],
+            metric=row["metric"],
+            rule_id=row["rule_id"],
+            rule_version_no=row["rule_version_no"],
+            rule_snapshot=json.loads(row["rule_snapshot_json"]),
+            kind=AnomalyKind(row["kind"]),
+            start_index=row["start_index"],
+            length=row["length"],
+            peak_value=row["peak_value"],
+            peak_score=row["peak_score"],
+            baseline=row["baseline"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+        )
